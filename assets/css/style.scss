@@ -1,4 +1,241 @@
----
----
+/*!
+ * Sass Starter Kit v1.0.0
+ * Copyright (c) 2016 - Ismael Martinez
+ * http://github.com/ismamz/sass-starter-kit/
+ * Licensed under MIT
+ */
 
-@import 'jekyll-theme-cayman';
+// General imports
+@import "variables";
+@import "mixins";
+@import "normalize";
+
+
+/* ==========================================================================
+   Reboot
+   ========================================================================== */
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
+
+html {
+  box-sizing: border-box;
+  overflow-y: scroll;
+  font-size: $font-size-base / $base-em * 100%;
+
+  -webkit-tap-highlight-color: transparent;
+}
+
+// Make all images responsiveness
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+body {
+  font-family: $font-stack-main;
+  font-size: $font-size-body;
+  line-height: $line-height-base;
+  color: $text-color;
+  background-color: $background-color;
+}
+
+
+/* ==========================================================================
+   Type
+   ========================================================================== */
+a,
+a:visited {
+  color: $link-color;
+  text-decoration: underline;
+
+  &:hover {
+    text-decoration: none;
+  }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin-top: em(26);
+  margin-bottom: em(12);
+  line-height: $line-height-hx;
+}
+
+h1 {
+  font-size: 2.125em;
+}
+
+h2 {
+  font-size: 1.75em;
+}
+
+h3 {
+  font-size: 1.5em;
+}
+
+h4 {
+  font-size: 1.25em;
+}
+
+h5 {
+  font-size: 1.125em;
+}
+
+h6 {
+  font-size: 1em;
+}
+
+blockquote {
+  padding-left: 20px;
+  margin: 0 0 0 30px;
+  border-left: 5px solid $gray-lighter;
+}
+
+.lead {
+  font-size: em(22);
+}
+
+// Horizontal rule
+hr {
+  height: 1px;
+  margin: 3em 0;
+  border: 0;
+  border-top: 1px solid $gray-lighter;
+}
+
+
+/* ==========================================================================
+   Grid
+   ========================================================================== */
+@import "grid";
+
+
+/* ==========================================================================
+   Helper classes
+   ========================================================================== */
+// Hidden (for Breakpoints)
+.hidden {
+  display: none !important;
+}
+
+@include tablet {
+  .hidden-md {
+    display: none !important;
+  }
+}
+
+@include mobile {
+  .hidden-sm {
+    display: none !important;
+  }
+}
+
+// Show (for Breakpoints)
+.show {
+  display: block !important;
+}
+
+@include tablet {
+  .show-md {
+    display: block !important;
+  }
+}
+
+@include mobile {
+  .show-sm {
+    display: block !important;
+  }
+}
+
+// Floats
+.fl { float: left !important; }
+.fr { float: right !important; }
+
+// Clearfix
+.cfx:before,
+.cfx:after {
+  display: table;
+  content: " ";
+}
+
+.cfx:after {
+  clear: both;
+}
+
+// List inline
+.list-inline {
+  padding-left: 0;
+  margin: 1em 0;
+  list-style: none;
+
+  li {
+    display: inline-block;
+    padding: 0 1em;
+  }
+
+  li:first-child {
+    padding-left: 0;
+  }
+
+  li:last-child {
+    padding-right: 0;
+  }
+}
+
+// Text aligns
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.text-right { text-align: right; }
+
+
+/* ==========================================================================
+   Accesibility
+   ========================================================================== */
+// Hide only visually, but have it available for screen readers
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+// Skip link
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  padding: 1em 1.5em;
+  overflow: hidden;
+  color: #fff;
+  background: #000;
+  transition: top .3s;
+
+  &:focus {
+    top: 0;
+    left: 0;
+    z-index: index($elements, skip-nav);
+    width: auto;
+    height: auto;
+  }
+}
+
+
+/* ==========================================================================
+   NOTE: Add new rules or import partials after this comment
+   ========================================================================== */
