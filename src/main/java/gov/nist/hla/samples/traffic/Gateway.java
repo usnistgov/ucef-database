@@ -1,6 +1,8 @@
 package gov.nist.hla.samples.traffic;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -11,28 +13,38 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Properties;
+import java.util.Objects;
+import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+//import SensorAggregation.Aggregator.AggregationMethod;
 import gov.nist.hla.gateway.GatewayCallback;
 import gov.nist.hla.gateway.GatewayFederate;
 import gov.nist.hla.gateway.GatewayFederateConfig;
 
 public class Gateway implements GatewayCallback {
     private static final Logger log = LogManager.getLogger();
-
+    
+    //private static final String OBJECT_CAR = "ObjectRoot.Car";
+    //private static final String INTERACTION_CameraFlash = "InteractionRoot.C2WInteractionRoot.CameraFlash";
+    
     // Initialize all of the variable related to the creation of the database
     static Connection connection = null;
-    
-	static String username = "root";
-	static String password = "root";
-	static String ipAdress = "192.168.10.23";
-	static String port = "3306";
+	static String username = "";
+	static String password = "";
+	static String ipAddress = "";
+	static String port = "";
 	static String databaseName = "";
 	HashMap<Integer, String> dataMap = new HashMap<Integer, String>();
 
     private GatewayFederate gateway;
+    //
+    private GatewayConfiguration configuration;
+    
     
     // Variables
     boolean newTimeStep = true;
@@ -45,13 +57,29 @@ public class Gateway implements GatewayCallback {
             return;
         }
         
-        GatewayFederateConfig config = GatewayFederate.readConfiguration(args[0]);
+        GatewayConfiguration config = Gateway.readConfiguration(args[0]);
         Gateway gatewayFederate = new Gateway(config);
         gatewayFederate.run();
     }
     
-    public Gateway(GatewayFederateConfig configuration) throws SQLException, InstantiationException, IllegalAccessException, ClassNotFoundException {
+    private static GatewayConfiguration readConfiguration(String filepath)
+            throws IOException {
+        log.info("reading JSON configuration file at " + filepath);
+        File configFile = Paths.get(filepath).toFile();
+        ObjectMapper mapper = new ObjectMapper();
+        return mapper.readValue(configFile, GatewayConfiguration.class);
+    }
+    
+    
+    public Gateway(GatewayConfiguration configuration) throws SQLException, InstantiationException, IllegalAccessException, ClassNotFoundException {
         this.gateway = new GatewayFederate(configuration, this);
+        
+        // Pull values from the configuration file
+        username = configuration.getUsername();
+        password = configuration.getPassword();
+        ipAddress = configuration.getIpAddress();
+        port = configuration.getPort()
+        		;
         log.info("Federation ID:");
         log.info(configuration.getFederationId());
         
@@ -98,11 +126,17 @@ public class Gateway implements GatewayCallback {
 			
 			
 			try {
-				createInteractionTable(databaseName, className);
+				createInteractionTable(databaseName, className, 1);
 				dataMap.put(1, className);
 			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
 				log.info("Error from catch.");
-			}
+			} finally {
+    			try {
+					connection.close();
+				} catch (SQLException e) {
+					log.info(e);
+				}
+    		}
 			
 		} else {
 			if(dataMap.containsValue(className) == true) {
@@ -112,11 +146,17 @@ public class Gateway implements GatewayCallback {
 		        for (Entry<Integer, String> entry : dataMap.entrySet()) { 
 		            if (entry.getKey()==maxKeyInMap) {
 		            	try {
-		    				createInteractionTable(databaseName, className);
+		    				createInteractionTable(databaseName, className, maxKeyInMap+1);
 		    				dataMap.put(maxKeyInMap+1, className);
 		    			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
 		    				log.info("Error from catch.");
-		    			}
+		    			} finally {
+		        			try {
+		    					connection.close();
+		    				} catch (SQLException e) {
+		    					log.info(e);
+		    				}
+		        		}
 		            }
 		        }
 			}
@@ -144,21 +184,13 @@ public class Gateway implements GatewayCallback {
     			log.info("updateInteractionTable has been called!");
     			updateInteractionTable(className, dataId, timeStep, entry.getValue(), entry.getKey());
     			log.info("SUCCESS! Added entry to table.");
-            } catch (InstantiationException e) {
-            	log.info("CATCH! InstantiationException");
-    		} catch (IllegalAccessException e) {
-    			log.info("CATCH! IllegalAccessException");
-    		} catch  (ClassNotFoundException e) {
-    			log.info("CATCH! ClassNotFoundException");
-    		} catch (SQLException e) {
-    			log.info("CATCH! SQLException");
+            } catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
     			log.info(e);
     		} finally {
     			try {
 					connection.close();
-					log.info("Connection closed!");
 				} catch (SQLException e) {
-					log.info("CATCH INSIDE OF FINNALY!");
+					log.info(e);
 				}
     		}
         }
@@ -175,13 +207,19 @@ public class Gateway implements GatewayCallback {
 		// Create the table if necessary and update the corresponding hash map, called dataMap
 		if (dataMap.isEmpty() == true) {
 			log.info("New object discoverd.");
-			dataMap.put(1, className);
 			
 			try {
-				createObjectTable(databaseName, className);
+				createObjectTable(databaseName, className, 1);
+				dataMap.put(1, className);
 			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
 				log.info("Error from catch.");
-			}
+			} finally {
+    			try {
+					connection.close();
+				} catch (SQLException e) {
+					log.info(e);
+				}
+    		}
 			
 		} else {
 			if(dataMap.containsValue(className) == true) {
@@ -190,12 +228,18 @@ public class Gateway implements GatewayCallback {
 				int maxKeyInMap = (Collections.max(dataMap.keySet()));
 		        for (Entry<Integer, String> entry : dataMap.entrySet()) { 
 		            if (entry.getKey()==maxKeyInMap) {
-		            	dataMap.put(maxKeyInMap+1, className);
 		            	try {
-		    				createObjectTable(databaseName, className);
+		    				createObjectTable(databaseName, className, maxKeyInMap+1);
+		    				dataMap.put(maxKeyInMap+1, className);
 		    			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
 		    				log.info("Error from catch.");
-		    			}
+		    			} finally {
+		        			try {
+		    					connection.close();
+		    				} catch (SQLException e) {
+		    					log.info(e);
+		    				}
+		        		}
 		            }
 		        }
 			}
@@ -233,7 +277,13 @@ public class Gateway implements GatewayCallback {
 			log.info("updateObjectTable has been called!");
 			updateObjectTable(className, dataId, timeStep, instanceName, attribute, description);
 		} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-			log.info("Error in catch.");
+			log.info(e);
+		} finally {
+			try {
+				connection.close();
+			} catch (SQLException e) {
+				log.info(e);
+			}
 		}
 		
 		log.info("END OF RECIEVE OBJECT");
@@ -250,7 +300,7 @@ public class Gateway implements GatewayCallback {
 	
 	// Create a schema within MySQL whose name is a concatenation of the federationID and a time stamp
 	public void createSchema(String databaseName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAdress+":"+port+"/";
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/";
         Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
 		Statement s = connection.createStatement();
@@ -260,7 +310,7 @@ public class Gateway implements GatewayCallback {
 	
 	
 	public void createDataModelTable(String databaseName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAdress+":"+port+"/"+databaseName;
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
         Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
 		Statement s = connection.createStatement();
@@ -269,9 +319,9 @@ public class Gateway implements GatewayCallback {
 	}
 	
 	
-	public void createObjectTable(String databaseName, String dataName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+	public void createObjectTable(String databaseName, String dataName, int dataId) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
 		//Add an entry in the data model table
-		String url = "jdbc:mysql://"+ipAdress+":"+port+"/"+databaseName;
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
 		String sql = "INSERT INTO `" + databaseName + "`.`DataModelTable` (`data_name`) VALUES (?);";
@@ -279,12 +329,14 @@ public class Gateway implements GatewayCallback {
 		ps.setString(1, dataName);
 		ps.executeUpdate();
 		//Create a new table for the object
+		
+		String newDataName = "Object" + dataId;
 		Statement s = connection.createStatement();
-		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + databaseName + "`.`" + dataName + "` (`entry_id` INT NOT NULL AUTO_INCREMENT,`data_id` INT,`time_step` INT,`instance_name` TEXT,`attribute` TEXT,`description` TEXT,PRIMARY KEY (`entry_id`),FOREIGN KEY (`data_id`) REFERENCES DataModelTable(`data_id`));");
+		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + databaseName + "`.`" + newDataName + "` (`entry_id` INT NOT NULL AUTO_INCREMENT,`data_id` INT,`time_step` INT,`instance_name` TEXT,`attribute` TEXT,`description` TEXT,PRIMARY KEY (`entry_id`),FOREIGN KEY (`data_id`) REFERENCES DataModelTable(`data_id`));");
 	}
 	
-	public void createInteractionTable(String databaseName, String dataName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAdress+":"+port+"/"+databaseName;
+	public void createInteractionTable(String databaseName, String dataName, int dataId) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
 		String sql = "INSERT INTO `" + databaseName + "`.`DataModelTable` (`data_name`) VALUES (?);";
@@ -292,15 +344,17 @@ public class Gateway implements GatewayCallback {
 		ps.setString(1, dataName);
 		ps.executeUpdate();
 		//Create a new table for the interaction
+		String newDataName = "Interaction" + dataId;
 		Statement s = connection.createStatement();
-		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + databaseName + "`.`" + dataName + "` (`entry_id` INT NOT NULL AUTO_INCREMENT,`data_id` INT,`time_step` INT, `attribute` TEXT,`description` TEXT,PRIMARY KEY (`entry_id`),FOREIGN KEY (`data_id`) REFERENCES DataModelTable(`data_id`));");
+		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + databaseName + "`.`" + newDataName + "` (`entry_id` INT NOT NULL AUTO_INCREMENT,`data_id` INT,`time_step` INT, `attribute` TEXT,`description` TEXT,PRIMARY KEY (`entry_id`),FOREIGN KEY (`data_id`) REFERENCES DataModelTable(`data_id`));");
 	}
 	
 	public void updateObjectTable(String dataName, int dataId, double timeStep, String instanceName, String attribute, String description) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAdress+":"+port+"/"+databaseName;
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
-		String sql = "INSERT INTO `" + databaseName + "`.`" + dataName + "` (`data_id`,`time_step`,`instance_name`,`attribute`,`description`) VALUES (?,?,?,?,?);";
+		String newDataName = "Object" + dataId;
+		String sql = "INSERT INTO `" + databaseName + "`.`" + newDataName + "` (`data_id`,`time_step`,`instance_name`,`attribute`,`description`) VALUES (?,?,?,?,?);";
 		PreparedStatement ps = connection.prepareStatement(sql);
 		ps.setInt(1, dataId);
 		ps.setDouble(2, timeStep);
@@ -311,10 +365,11 @@ public class Gateway implements GatewayCallback {
 	}
 	
 	public void updateInteractionTable(String dataName, int dataId, double timeStep, String attribute, String description) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAdress+":"+port+"/"+databaseName;
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
-		String sql = "INSERT INTO `" + databaseName + "`.`" + dataName + "` (`data_id`,`time_step`,`attribute`,`description`) VALUES (?,?,?,?);";
+		String newDataName = "Interaction" + dataId;
+		String sql = "INSERT INTO `" + databaseName + "`.`" + newDataName + "` (`data_id`,`time_step`,`attribute`,`description`) VALUES (?,?,?,?);";
 		PreparedStatement ps = connection.prepareStatement(sql);
 		ps.setInt(1, dataId);
 		ps.setDouble(2, timeStep);
