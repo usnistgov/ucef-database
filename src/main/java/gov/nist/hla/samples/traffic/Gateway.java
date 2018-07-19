@@ -1,3 +1,8 @@
+/*
+MySQL Wrapper for UCEF
+Written over the summer of 2018 by SURF student James Arnold under the direction of Dr. Thomas Roth.
+*/
+
 package gov.nist.hla.samples.traffic;
 
 import java.io.File;
@@ -13,9 +18,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
-import java.util.Set;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -24,13 +26,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 //import SensorAggregation.Aggregator.AggregationMethod;
 import gov.nist.hla.gateway.GatewayCallback;
 import gov.nist.hla.gateway.GatewayFederate;
-import gov.nist.hla.gateway.GatewayFederateConfig;
 
 public class Gateway implements GatewayCallback {
     private static final Logger log = LogManager.getLogger();
-    
-    //private static final String OBJECT_CAR = "ObjectRoot.Car";
-    //private static final String INTERACTION_CameraFlash = "InteractionRoot.C2WInteractionRoot.CameraFlash";
     
     // Initialize all of the variable related to the creation of the database
     static Connection connection = null;
@@ -38,39 +36,33 @@ public class Gateway implements GatewayCallback {
 	static String password = "";
 	static String ipAddress = "";
 	static String port = "";
-	static String databaseName = "";
-	HashMap<Integer, String> dataMap = new HashMap<Integer, String>();
-
+	static String schemaName = "";
     private GatewayFederate gateway;
-    //
-    private GatewayConfiguration configuration;
-    
-    
-    // Variables
     boolean newTimeStep = true;
-    int objectNumber = 1;
+    HashMap<Integer, String> indexMap = new HashMap<Integer, String>();
     
+    // The main() function is used to load the configuration file
     public static void main(String[] args)
             throws IOException, InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
         if (args.length != 1) {
             log.error("Missing command line argument for JSON configuration file.");
             return;
         }
-        
         GatewayConfiguration config = Gateway.readConfiguration(args[0]);
         Gateway gatewayFederate = new Gateway(config);
         gatewayFederate.run();
     }
     
+    // Reads the configuration file
     private static GatewayConfiguration readConfiguration(String filepath)
             throws IOException {
-        log.info("reading JSON configuration file at " + filepath);
+        log.info("Reading JSON configuration file at " + filepath);
         File configFile = Paths.get(filepath).toFile();
         ObjectMapper mapper = new ObjectMapper();
         return mapper.readValue(configFile, GatewayConfiguration.class);
     }
     
-    
+    // Creates the schema and index table in MySQL
     public Gateway(GatewayConfiguration configuration) throws SQLException, InstantiationException, IllegalAccessException, ClassNotFoundException {
         this.gateway = new GatewayFederate(configuration, this);
         
@@ -78,86 +70,74 @@ public class Gateway implements GatewayCallback {
         username = configuration.getUsername();
         password = configuration.getPassword();
         ipAddress = configuration.getIpAddress();
-        port = configuration.getPort()
-        		;
-        log.info("Federation ID:");
-        log.info(configuration.getFederationId());
+        port = configuration.getPort();
         
+        // Time stamp the schema name to avoid duplicates
         String timeStamp = new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss").format(new java.util.Date());
-        log.info(configuration.getFederationId()+"_"+timeStamp);
-        databaseName = configuration.getFederationId()+"_"+timeStamp;
-        createSchema(databaseName);
-        createDataModelTable(databaseName);
+        schemaName = configuration.getFederationId()+"_"+timeStamp; // Format for naming the schema
+        
+        // Create the schema and index table within the schema
+        createSchema(schemaName);
+        createIndexTable(schemaName);
     }
     
     public void run() {
-        log.trace("run");
-        
         gateway.run();
     }
 
 	@Override
 	public void doTimeStep(Double timeStep) {
-		// TODO Auto-generated method stub
-		log.info("NEW TIME STEP");
 		newTimeStep = true;
-
 	}
 
 	@Override
 	public void initializeSelf() {
-		// TODO Auto-generated method stub
 		
 	}
 
 	@Override
 	public void initializeWithPeers() {
-		// TODO Auto-generated method stub
 		
 	}
 
+	
 	@Override
 	public void receiveInteraction(Double timeStep, String className, Map<String, String> parameters) {
-        //log.trace(String.format("receiveInteraction %f %s %s", timeStep, className, parameters.toString()));
-		log.info("START OF RECIEVE INTERACTION");
-		boolean newInteractionTable = true;
-		
-        if (dataMap.isEmpty() == true) {
-			log.info("New Interaction discoverd.");
-			
-			
+		boolean newInteractionTable = true; // Used to determine when to add columns to new interaction tables
+        if (indexMap.isEmpty() == true) {
+        	// Create the first table and update the corresponding hash map, called indexMap
 			try {
-				createInteractionTable(databaseName, className, 1);
-				dataMap.put(1, className);
+				createInteractionTable(schemaName, className, 1); // Create first interaction table
+				indexMap.put(1, className);  // Represent index table in index map
 				newInteractionTable = true;
 			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-				log.info("Error from catch.");
+				log.info(e); // Interaction table cannot be created
 			} finally {
     			try {
-					connection.close();
+					connection.close(); // Close the connection to the database schema
 				} catch (SQLException e) {
-					log.info(e);
+					log.info(e);  // Connection cannot be closed
 				}
     		}
-			
 		} else {
-			if(dataMap.containsValue(className) == true) {
-				log.info("Avoided adding a repeat class.");
+			if(indexMap.containsValue(className) == true) {
+				// Avoids creating a table that already exists for all tables after the creation of the first
 				newInteractionTable = false;
 			} else {
-				int maxKeyInMap = (Collections.max(dataMap.keySet()));
-		        for (Entry<Integer, String> entry : dataMap.entrySet()) { 
+				// There are already other tables, but not one for this interaction, a new table is created
+				int maxKeyInMap = (Collections.max(indexMap.keySet()));
+		        for (Entry<Integer, String> entry : indexMap.entrySet()) { 
 		            if (entry.getKey()==maxKeyInMap) {
 		            	try {
-		    				createInteractionTable(databaseName, className, maxKeyInMap+1);
-		    				dataMap.put(maxKeyInMap+1, className);
+		    				createInteractionTable(schemaName, className, maxKeyInMap+1); // Create new interaction table
+		    				indexMap.put(maxKeyInMap+1, className); // Represent index table in index map
 		    			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-		    				log.info("Error from catch.");
+		    				log.info(e); // Interaction table cannot be created
 		    			} finally {
 		        			try {
-		    					connection.close();
+		    					connection.close(); // Close the connection to the database schema
 		    				} catch (SQLException e) {
-		    					log.info(e);
+		    					log.info(e); // Connection cannot be closed
 		    				}
 		        		}
 		            }
@@ -165,93 +145,77 @@ public class Gateway implements GatewayCallback {
 			}
 		}
         
-        
-        // Initialize the data
-     	int dataId = 69;
-     	// Find the dataId that corresponds to the entry in the dataMap
-     	for (Entry<Integer, String> entry : dataMap.entrySet()) {
+        // Determines the correct index id
+     	int indexId = 1;
+     	for (Entry<Integer, String> entry : indexMap.entrySet()) {
             if (entry.getValue().equals(className)) {
-                 dataId = entry.getKey();
+                 indexId = entry.getKey();
             }
         }
-     		
+     	
+     	// Adds columns to the new interaction tables
         for (Map.Entry<String, String> entry : parameters.entrySet()) {
-            //log.info(entry.getKey() + ":" + entry.getValue());
-        	log.info("dataName: " + className);
-        	log.info("dataId: " + dataId);
-        	log.info("timeStep: " + timeStep);
-        	log.info("attribute: " + entry.getValue());
-        	log.info("description: " + entry.getKey());
-        	
             try {
-    			log.info("updateInteractionTable has been called!");
     			 if (newInteractionTable == true) {
-    				 addColumnToInteractionTable(className, dataId, entry.getKey());
+    				 // Since the interaction table is new, columns must be added for each parameter
+    				 addColumnToInteractionTable(className, indexId, entry.getKey());
     			 }
-    			
-    			
             } catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-    			log.info(e);
+    			log.info(e); // Columns could not be added to the interaction table
     		} finally {
     			try {
-					connection.close();
+					connection.close(); // Close the connection to the database schema
 				} catch (SQLException e) {
-					log.info(e);
+					log.info(e); // The connection could not be closed
 				}
     		}
         }
         
+        
+        // Update the interaction table since a new interaction was received
         try {
-			updateInteractionTable(className, dataId, timeStep, parameters);
-			log.info("SUCCESS! Added entry to table.");
+        	// Adds a row to the interaction table
+			updateInteractionTable(className, indexId, timeStep, parameters);
 		} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-			log.info(e);
+			log.info(e); // Interaction table could not be updated.
 		}
-        
-        
-        log.info("END OF RECIEVE INTERACTION");
     }
-
+	
+	
 	@Override
-	public void receiveObject(Double timeStep, String className, String instanceName, Map<String, String> attributes) {
-        //log.trace(String.format("receiveObject %f %s %s %s", timeStep, className, instanceName, attributes.toString()));
-		log.info("START OF RECIEVE OBJECT");
-		log.info(dataMap);
-		
-		// Create the table if necessary and update the corresponding hash map, called dataMap
-		if (dataMap.isEmpty() == true) {
-			log.info("New object discoverd.");
-			
+	public void receiveObject(Double timeStep, String className, String instanceName, Map<String, String> attributes) {	
+		if (indexMap.isEmpty() == true) {
+			// Create the first table and update the corresponding hash map, called indexMap
 			try {
-				createObjectTable(databaseName, className, 1);
-				dataMap.put(1, className);
+				createObjectTable(schemaName, className, 1); // Create first object table
+				indexMap.put(1, className); // Represent index table in index map
 			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-				log.info("Error from catch.");
+				log.info(e); // Object table cannot be created
 			} finally {
     			try {
-					connection.close();
+					connection.close(); // Close the connection to the database schema
 				} catch (SQLException e) {
-					log.info(e);
+					log.info(e); // Connection cannot be closed
 				}
     		}
-			
 		} else {
-			if(dataMap.containsValue(className) == true) {
-				log.info("Avoided adding a repeat class.");
+			if(indexMap.containsValue(className) == true) {
+				// Avoids creating a table that already exists (repeat class)
 			} else {
-				int maxKeyInMap = (Collections.max(dataMap.keySet()));
-		        for (Entry<Integer, String> entry : dataMap.entrySet()) { 
+				// There are already other tables, but not one for this object, a new table is created
+				int maxKeyInMap = (Collections.max(indexMap.keySet()));
+		        for (Entry<Integer, String> entry : indexMap.entrySet()) { 
 		            if (entry.getKey()==maxKeyInMap) {
 		            	try {
-		    				createObjectTable(databaseName, className, maxKeyInMap+1);
-		    				dataMap.put(maxKeyInMap+1, className);
+		    				createObjectTable(schemaName, className, maxKeyInMap+1); // Create new object table
+		    				indexMap.put(maxKeyInMap+1, className); // Represent index table in index map
 		    			} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-		    				log.info("Error from catch.");
+		    				log.info(e); // Object table cannot be created
 		    			} finally {
 		        			try {
-		    					connection.close();
+		    					connection.close(); // Close the connection to the database schema
 		    				} catch (SQLException e) {
-		    					log.info(e);
+		    					log.info(e); // Connection cannot be closed
 		    				}
 		        		}
 		            }
@@ -259,7 +223,7 @@ public class Gateway implements GatewayCallback {
 			}
 		}
 		
-		// Create the substring used for the description
+		// Creates the substring used for the description
 		String mapName = attributes.toString();
 		int iend = mapName.indexOf("=");
 		String description = null;
@@ -268,159 +232,273 @@ public class Gateway implements GatewayCallback {
 		}
 		description = description.substring(1); // Remove the bracket at the beginning
 		
-		// Initialize the data
-		int dataId = 69;
-		// Find the dataId that corresponds to the entry in the dataMap
-		for (Entry<Integer, String> entry : dataMap.entrySet()) {
+		// Determines the correct index id
+		int indexId = 1;
+		for (Entry<Integer, String> entry : indexMap.entrySet()) {
             if (entry.getValue().equals(className)) {
-            	dataId = entry.getKey();
+            	indexId = entry.getKey();
             }
         }
 		
-		// Print all of the values that will be put into the table
-		//log.info("className: " + className);
-		//log.info("dataId: " + dataId);
-		//log.info("timeStep: " + timeStep);
-		//log.info("instanceName: " + instanceName);
-		//log.info("attribute: " + attributes.values().toString());
-		//log.info("description: " + description);
-		
+		// Defines the attribute that is being defined by description
 		String attribute = attributes.values().toString();
 		
+		
+		// Update the object table since a new object was received
 		try {
-			log.info("updateObjectTable has been called!");
-			updateObjectTable(className, dataId, timeStep, instanceName, attribute, description);
+			// Adds a row to the object table
+			updateObjectTable(className, indexId, timeStep, instanceName, attribute, description);
 		} catch (InstantiationException | IllegalAccessException | ClassNotFoundException | SQLException e) {
-			log.info(e);
+			log.info(e);  // Object table could not be updated.
 		} finally {
 			try {
-				connection.close();
+				connection.close(); // Close the connection to the database schema
 			} catch (SQLException e) {
-				log.info(e);
+				log.info(e); // The connection could not be closed
 			}
 		}
-		
-		log.info("END OF RECIEVE OBJECT");
     }
 
 	@Override
 	public void terminate() {
-		// TODO Auto-generated method stub
 		
 	}
 	
-	
-	// All of the following functions are not auto-generated and are specific to creating database
-	
-	// Create a schema within MySQL whose name is a concatenation of the federationID and a time stamp
-	public void createSchema(String databaseName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+	/**
+	 * Creates a schema within MySQL whose name is a concatenation of the federationID and a time stamp.
+	 * @param schemaName
+	 * 		Name of the schema which stores all of the created tables. It is a concatenation of the federationID and a time stamp.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws ClassNotFoundException
+	 * @throws SQLException
+	 */
+	public void createSchema(String schemaName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		// Connect to the general MySQL address
 		String url = "jdbc:mysql://"+ipAddress+":"+port+"/";
         Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
 		Statement s = connection.createStatement();
-		s.executeUpdate("CREATE SCHEMA IF NOT EXISTS `" + databaseName + "`");
-		log.info("A schema named " + databaseName + "has been created in MySQL.");
+		
+		// Send the query to MySQL to create the schema where all of the tables will be stored
+		s.executeUpdate("CREATE SCHEMA IF NOT EXISTS `" + schemaName + "`");
+		log.info("A schema named " + schemaName + "has been created in MySQL.");
 	}
 	
-	
-	public void createDataModelTable(String databaseName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
+	/**
+	 * Creates the index table that stores the "dataName" for each object and interaction
+	 * @param schemaName
+	 * 		Name of the schema where the index table will be placed.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws ClassNotFoundException
+	 * @throws SQLException
+	 */
+	public void createIndexTable(String schemaName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		// Connect to schema within MySQL
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+schemaName+"?autoReconnect=true&useSSL=false";
         Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
 		Statement s = connection.createStatement();
-		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + databaseName + "`.`DataModelTable` (`data_id` INT NOT NULL AUTO_INCREMENT,`data_name` TEXT,PRIMARY KEY(`data_id`));");
-		log.info("The DataModelTable has been created.");
-	}
-	
-	
-	public void createObjectTable(String databaseName, String dataName, int dataId) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		//Add an entry in the data model table
-		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
-		Class.forName("com.mysql.jdbc.Driver").newInstance();
-		connection = DriverManager.getConnection(url, username, password);
-		String sql = "INSERT INTO `" + databaseName + "`.`DataModelTable` (`data_name`) VALUES (?);";
-		PreparedStatement ps = connection.prepareStatement(sql);
-		ps.setString(1, dataName);
-		ps.executeUpdate();
-		//Create a new table for the object
 		
-		String newDataName = "Table" + dataId + ".object";
-		Statement s = connection.createStatement();
-		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + databaseName + "`.`" + newDataName + "` (`entry_id` INT NOT NULL AUTO_INCREMENT,`data_id` INT,`time_step` INT,`instance_name` TEXT,`attribute` TEXT,`description` TEXT,PRIMARY KEY (`entry_id`),FOREIGN KEY (`data_id`) REFERENCES DataModelTable(`data_id`));");
+		// Send the query to MySQL to create the index table
+		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + schemaName + "`.`IndexTable` (`indexId` INT NOT NULL AUTO_INCREMENT,`dataName` TEXT,PRIMARY KEY(`indexId`));");
+		log.info("The IndexTable has been created.");
 	}
 	
-	
-	public void createInteractionTable(String databaseName, String dataName, int dataId) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
+	/**
+	 * Creates a new object table.
+	 * Connects to the database schema defined in createSchema(), adds an entry to the index table, and creates a new object table.
+	 * @param schemaName
+	 * 		Name of the schema where all the tables are being stored.
+	 * @param tableName
+	 * 		Name of the table that is being created.
+	 * @param indexId
+	 * 		Number used to reference the object table in the index table.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws ClassNotFoundException
+	 * @throws SQLException
+	 */
+	public void createObjectTable(String schemaName, String tableName, int indexId) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		// Connect to the created schema
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+schemaName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
-		String sql = "INSERT INTO `" + databaseName + "`.`DataModelTable` (`data_name`) VALUES (?);";
+		
+		// Query to add an entry to the index table
+		String sql = "INSERT INTO `" + schemaName + "`.`IndexTable` (`dataName`) VALUES (?);";
 		PreparedStatement ps = connection.prepareStatement(sql);
-		ps.setString(1, dataName);
+		ps.setString(1, tableName);
+		
+		// Send the query to MySQL to add a row to the index table
 		ps.executeUpdate();
-		//Create a new table for the interaction
-		String newDataName = "Table" + dataId + ".interaction";
+		
+		// Create a new table for the object
+		String newTableName = "Table" + indexId + ".object";
 		Statement s = connection.createStatement();
-		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + databaseName + "`.`" + newDataName + "` (`entry_id` INT NOT NULL AUTO_INCREMENT,`data_id` INT,`time_step` INT, PRIMARY KEY (`entry_id`),FOREIGN KEY (`data_id`) REFERENCES DataModelTable(`data_id`));");
+		
+		// Send the query to MySQL to create the object table
+		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + schemaName + "`.`" + newTableName + "` (`entryId` "
+				+ "INT NOT NULL AUTO_INCREMENT,`indexId` INT,`timeStep` INT,`instanceName` TEXT,`attribute` "
+				+ "TEXT,`description` TEXT,PRIMARY KEY (`entryId`),FOREIGN KEY (`indexId`) REFERENCES IndexTable(`indexId`));");
+		log.info("An object table named " + tableName + "has been created in MySQL.");
 	}
 	
-	public void addColumnToInteractionTable(String dataName, int dataId, String columnName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
+	/**
+	 * Creates a new interaction table.
+	 * Connects to the database schema defined in createSchema(), adds an entry to the index table, and creates a new interaction table.
+	 * @param schemaName
+	 * 		Name of the schema where all the tables are being stored.
+	 * @param tableName
+	 * 		Name of the table that is being created.
+	 * @param indexId
+	 * 		Number used to reference the interaction table in the index table.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws ClassNotFoundException
+	 * @throws SQLException
+	 */
+	public void createInteractionTable(String schemaName, String tableName, int indexId) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		// Connect to the created schema
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+schemaName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
-		String newDataName = "Table" + dataId + ".interaction";
-		String sql = "ALTER TABLE `" + databaseName + "`.`" + newDataName + "` ADD " + columnName + " TEXT;";
+		
+		// Query to add an entry to the index table
+		String sql = "INSERT INTO `" + schemaName + "`.`IndexTable` (`dataName`) VALUES (?);";
 		PreparedStatement ps = connection.prepareStatement(sql);
+		ps.setString(1, tableName);
+		
+		// Send the query to MySQL to add a row to the index table
+		ps.executeUpdate();
+		
+		// Create a new table for the interaction
+		String newTableName = "Table" + indexId + ".interaction";
+		Statement s = connection.createStatement();
+		
+		// Send the query to MySQL to create the interaction table
+		s.executeUpdate("CREATE TABLE IF NOT EXISTS `" + schemaName + "`.`" + newTableName + "` (`entryId` INT NOT NULL AUTO_INCREMENT,"
+				+ "`indexId` INT,`timeStep` INT, PRIMARY KEY (`entryId`),FOREIGN KEY (`indexId`) REFERENCES IndexTable(`indexId`));");
+		log.info("An interaction table named " + tableName + "has been created in MySQL.");
+	}
+	
+	/**
+	 * Adds a column to an interaction table that corresponds to an attributes of an interactions, when new interaction tables are created.
+	 * Connects to the database schema defined in createSchema() and then queries the table to add a new column.
+	 * @param tableName
+	 * 		Name of the table where columns are being added.
+	 * @param indexId
+	 * 		Number used to reference the interaction table in the index table.
+	 * @param columnName
+	 * 		Name of the column (attribute) that is being added to the table.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws ClassNotFoundException
+	 * @throws SQLException
+	 */
+	public void addColumnToInteractionTable(String tableName, int indexId, String columnName) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		// Connect to the created schema
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+schemaName+"?autoReconnect=true&useSSL=false";
+		Class.forName("com.mysql.jdbc.Driver").newInstance();
+		connection = DriverManager.getConnection(url, username, password);
+		
+		String newTableName = "Table" + indexId + ".interaction";
+		String sql = "ALTER TABLE `" + schemaName + "`.`" + newTableName + "` ADD " + columnName + " TEXT;";
+		PreparedStatement ps = connection.prepareStatement(sql);
+		
+		// Send the query to MySQL to add a column to the interaction table
 		ps.executeUpdate();
 	}
 	
-	public void updateObjectTable(String dataName, int dataId, double timeStep, String instanceName, String attribute, String description) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
+	/**
+	 * Adds a row to the object table each time an instance of an object is received.
+	 * Connects to the database schema defined in createSchema(), builds a query with the of the attribute and description for an instance of an object,
+	 * and then executes this query. 
+	 * @param tableName
+	 * 		Name of the object table that is being updated.
+	 * @param indexId
+	 * 		Index id that describes this object in the index table.
+	 * @param timeStep
+	 * 		Number defining the current time step.
+	 * @param instanceName
+	 * 		Name of the instance of an object.
+	 * @param attribute
+	 * 		Value that the object contains.
+	 * @param description
+	 * 		Description of what is the meaning of the value being stored.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws ClassNotFoundException
+	 * @throws SQLException
+	 */
+	public void updateObjectTable(String tableName, int indexId, double timeStep, String instanceName, String attribute, String description) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		// Connect to the created schema
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+schemaName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
-		String newDataName = "Table" + dataId + ".object";
-		String sql = "INSERT INTO `" + databaseName + "`.`" + newDataName + "` (`data_id`,`time_step`,`instance_name`,`attribute`,`description`) VALUES (?,?,?,?,?);";
+		
+		String newTableName = "Table" + indexId + ".object";
+		String sql = "INSERT INTO `" + schemaName + "`.`" + newTableName + "` (`indexId`,`timeStep`,`instanceName`,`attribute`,`description`) VALUES (?,?,?,?,?);";
 		PreparedStatement ps = connection.prepareStatement(sql);
-		ps.setInt(1, dataId);
+		
+		// Add values into the prepared statement
+		ps.setInt(1, indexId);
 		ps.setDouble(2, timeStep);
 		ps.setString(3, instanceName);
 		ps.setString(4, attribute);
 		ps.setString(5, description);
+		
+		// Send the query to MySQL to add a row to the object table
 		ps.executeUpdate();
 	}
 	
-	
-	public void updateInteractionTable(String dataName, int dataId, double timeStep, Map<String, String> parameters) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
-		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+databaseName+"?autoReconnect=true&useSSL=false";
+	/**
+	 * Adds a row to the interaction table each time an interaction is received.
+	 * Connects to the database schema defined in createSchema(), builds a query specific to the number of parameters for the interaction,
+	 * and then executes this query. 
+	 * @param tableName
+	 * 		Name of the interaction table that is being updated.
+	 * @param indexId
+	 * 		Index id that describes this interaction in the index table.
+	 * @param timeStep
+	 * 		Number defining the current time step.
+	 * @param parameters
+	 * 		Map of the parameters received by the interaction.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws ClassNotFoundException
+	 * @throws SQLException
+	 */
+	public void updateInteractionTable(String tableName, int indexId, double timeStep, Map<String, String> parameters) throws InstantiationException, IllegalAccessException, ClassNotFoundException, SQLException {
+		// Connect to the created schema
+		String url = "jdbc:mysql://"+ipAddress+":"+port+"/"+schemaName+"?autoReconnect=true&useSSL=false";
 		Class.forName("com.mysql.jdbc.Driver").newInstance();
 		connection = DriverManager.getConnection(url, username, password);
-		String newDataName = "Table" + dataId + ".interaction";
 		
-		String sql = "INSERT INTO `" + databaseName + "`.`" + newDataName + "` (`data_id`,`time_step`) VALUES (?,?);";
-		
-		String sql1 = "INSERT INTO `" + databaseName + "`.`" + newDataName + "` (`data_id`,`time_step`";
+		String newTableName = "Table" + indexId + ".interaction";
+		String sql = "INSERT INTO `" + schemaName + "`.`" + newTableName + "` (`indexId`,`timeStep`) VALUES (?,?);";
+		String sql1 = "INSERT INTO `" + schemaName + "`.`" + newTableName + "` (`indexId`,`timeStep`";
 		String sql2 = ") VALUES (?,?";
-		//Build the query
+		
+		// Build the query that is specific to the number of parameters, corresponding to number of columns in the database
 		for (Map.Entry<String, String> entry : parameters.entrySet()) {
-            //log.info(entry.getKey() + ":" + entry.getValue());
             sql1 = sql1 + ",`" + entry.getKey() + "`";
             sql2 = sql2 + ",?";
             sql = sql1 + sql2 + ");";
         }
-		log.info("SQL statement: " + sql);
 		PreparedStatement ps = connection.prepareStatement(sql);
-		ps.setInt(1, dataId);
-		ps.setDouble(2, timeStep);
-		//Add values into the prepared statement
-		ps.setInt(1, dataId);
+		
+		// Add values into the prepared statement
+		ps.setInt(1, indexId);
 		ps.setDouble(2, timeStep);
 		int i = 3;
 		for (Map.Entry<String, String> entry : parameters.entrySet()) {
 			ps.setString(i, entry.getValue());
 			i = i+1;
 		}
+		
+		// Send the query to MySQL to add a row to the interaction table
 		ps.executeUpdate();
 	}
-	
-	
 }
