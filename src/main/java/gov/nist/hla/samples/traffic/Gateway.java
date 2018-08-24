@@ -223,15 +223,6 @@ public class Gateway implements GatewayCallback {
 			}
 		}
 		
-		// Creates the substring used for the description
-		String mapName = attributes.toString();
-		int iend = mapName.indexOf("=");
-		String description = null;
-		if (iend != -1) {
-			description= mapName.substring(0 , iend); 
-		}
-		description = description.substring(1); // Remove the bracket at the beginning
-		
 		// Determines the correct index id
 		int indexId = 1;
 		for (Entry<Integer, String> entry : indexMap.entrySet()) {
@@ -240,10 +231,10 @@ public class Gateway implements GatewayCallback {
             }
         }
 		
-		// Defines the attribute that is being defined by description
-		String attribute = attributes.values().toString();
-		
-		
+		for (Map.Entry<String, String> entry : attributes.entrySet()) {
+            final String attribute = entry.getValue();
+            final String description = entry.getKey();
+
 		// Update the object table since a new object was received
 		try {
 			// Adds a row to the object table
@@ -257,6 +248,11 @@ public class Gateway implements GatewayCallback {
 				log.info(e); // The connection could not be closed
 			}
 		}
+        }
+    }
+
+    @Override
+    public void prepareToResign() {
     }
 
 	@Override
