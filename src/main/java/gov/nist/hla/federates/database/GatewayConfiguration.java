@@ -1,4 +1,4 @@
-package gov.nist.hla.samples.traffic;
+package gov.nist.hla.federates.database;
 
 import gov.nist.hla.gateway.GatewayFederateConfig;
 

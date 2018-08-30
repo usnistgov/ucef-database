@@ -1,9 +1,9 @@
 /*
-MySQL Wrapper for UCEF
+Database Wrapper for UCEF
 Written over the summer of 2018 by SURF student James Arnold under the direction of Dr. Thomas Roth.
 */
 
-package gov.nist.hla.samples.traffic;
+package gov.nist.hla.federates.database;
 
 import java.io.File;
 import java.io.IOException;
@@ -27,7 +27,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import gov.nist.hla.gateway.GatewayCallback;
 import gov.nist.hla.gateway.GatewayFederate;
 
-public class Gateway implements GatewayCallback {
+public class Database implements GatewayCallback {
     private static final Logger log = LogManager.getLogger();
     
     // Initialize all of the variable related to the creation of the database
@@ -48,9 +48,9 @@ public class Gateway implements GatewayCallback {
             log.error("Missing command line argument for JSON configuration file.");
             return;
         }
-        GatewayConfiguration config = Gateway.readConfiguration(args[0]);
-        Gateway gatewayFederate = new Gateway(config);
-        gatewayFederate.run();
+        GatewayConfiguration config = Database.readConfiguration(args[0]);
+        Database databaseFederate = new Database(config);
+        databaseFederate.run();
     }
     
     // Reads the configuration file
@@ -63,7 +63,7 @@ public class Gateway implements GatewayCallback {
     }
     
     // Creates the schema and index table in MySQL
-    public Gateway(GatewayConfiguration configuration) throws SQLException, InstantiationException, IllegalAccessException, ClassNotFoundException {
+    public Database(GatewayConfiguration configuration) throws SQLException, InstantiationException, IllegalAccessException, ClassNotFoundException {
         this.gateway = new GatewayFederate(configuration, this);
         
         // Pull values from the configuration file
