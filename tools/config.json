@@ -1,0 +1,12 @@
+{
+   "db": {
+      "host": "localhost",
+      "port": 3306,
+      "password": "c2wt",
+      "user": "root"
+   },
+   "params": {
+
+   },
+   "outputDir":"output"
+}
